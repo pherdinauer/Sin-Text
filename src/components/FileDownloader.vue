@@ -95,77 +95,59 @@ export default {
       this.selectedFile = event.dataTransfer.files[0];
     },
     async uploadFile() {
-      if (!this.selectedFile) return;
+      if (!this.selectedFile) {
+        this.error = 'Nessun file selezionato';
+        return;
+      }
 
       this.processing = true;
       this.error = null;
-      this.downloadLink = null;
-      this.currentStatus = '';
-      this.completedPrompts = 0; // Resetta il conteggio
-      this.currentStep = 'model_selection';
+      this.currentStatus = 'Caricamento in corso...';
 
       const formData = new FormData();
       formData.append('file', this.selectedFile);
 
       try {
-        console.log('Inizio upload al server:', `${API_URL}/api/upload`);
-        const response = await fetch(`${API_URL}/api/upload`, {
+        console.log('Inizio upload del file:', this.selectedFile.name);
+        const response = await fetch('/api/upload', {
           method: 'POST',
           body: formData
         });
+        console.log('Risposta ricevuta:', response);
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error(`Errore HTTP: ${response.status}`);
         }
-        console.log('Upload completato, inizio lettura della risposta');
-        // Imposta il progresso iniziale al 10% quando inizia l'analisi
-        this.completedPrompts = 0.33; // Questo farà sì che progressPercentage sia circa 10%
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-
-        let done = false;
-        while (!done) {
-          const { value, done: doneReading } = await reader.read();
-          done = doneReading;
-          if (value) {
-            const chunk = decoder.decode(value);
-            const messages = chunk.split('\n\n');
-            for (const message of messages) {
-              if (message.startsWith('data: ')) {
-                const data = message.slice(6);
-                try {
-                  const jsonData = JSON.parse(data);
-                  if (jsonData.fileName) {
-                    this.fileName = jsonData.fileName;
-                    this.downloadLink = `/api/download/${jsonData.fileName}`;
-                    this.processing = false;
-                    this.completedPrompts = 3; // Assicuriamoci che la barra sia piena alla fine
-                    this.currentStep = '';
-                  } else {
-                    this.currentStatus = data;
-                    if (data.includes('Modello scelto per la Parte')) {
-                      this.completedPrompts += 0.33;
-                      this.currentStep = 'analysis';
-                    } else if (data.includes('Invio del Prompt 1')) {
-                      this.currentStep = 'analysis';
-                    } else if (data.includes('Invio del Prompt 3')) {
-                      this.currentStep = 'document_production';
-                    }
-                  }
-                } catch (e) {
-                  this.currentStatus = data;
-                }
-              }
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value, { stream: true });
+          const messages = chunk.split('\n\n');
+          
+          for (const message of messages) {
+            if (message.startsWith('data: ')) {
+              const data = JSON.parse(message.slice(5));
+              console.log('Aggiornamento ricevuto:', data);
+              this.currentStatus = data.message;
             }
           }
         }
+        
+        console.log('Elaborazione completata');
+        // Gestisci il completamento (ad esempio, mostra il link per il download)
       } catch (error) {
-        console.error('Errore durante l\'upload:', error);
-        this.currentStatus = `Errore durante l'upload: ${error.message}`;
+        console.error('Errore durante l\'upload o l\'elaborazione:', error);
+        this.error = `Errore: ${error.message}`;
+      } finally {
+        this.processing = false;
       }
     },
-    downloadFile() {
+    async downloadFile() {
       console.log('Inizio download del file:', this.fileName);
       try {
         const url = `${API_URL}/api/download/${this.fileName}`;
