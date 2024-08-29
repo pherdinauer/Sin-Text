@@ -4,7 +4,7 @@ module.exports = defineConfig({
   devServer: {
     proxy: {
       '/api': {
-        target: `http://${process.env.VUE_APP_PUNTATORE || '192.168.145.10'}:3000`,
+        target: 'http://localhost:3000',
         changeOrigin: true
       }
     }

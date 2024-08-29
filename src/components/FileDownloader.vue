@@ -36,10 +36,10 @@
       <i :class="statusIcon"></i>
       {{ currentStatus }}
     </div>
-    <div v-if="downloadLink" class="download-link">
-      <a :href="downloadLink" :download="fileName" class="download-button">
+    <div v-if="fileName" class="download-link">
+      <button @click="downloadFile" class="download-button">
         <i class="fas fa-download"></i> Scarica DOCX
-      </a>
+      </button>
     </div>
     <div v-if="error" class="error">
       <i class="fas fa-exclamation-circle"></i> {{ error }}
@@ -108,8 +108,8 @@ export default {
       formData.append('file', this.selectedFile);
 
       try {
-        console.log('Inizio upload al server:', `${API_URL}/api/process-file`);
-        const response = await fetch(`${API_URL}/api/process-file`, {
+        console.log('Inizio upload al server:', `${API_URL}/api/upload`);
+        const response = await fetch(`${API_URL}/api/upload`, {
           method: 'POST',
           body: formData
         });
@@ -165,8 +165,22 @@ export default {
         this.currentStatus = `Errore durante l'upload: ${error.message}`;
       }
     },
-    downloadFile(fileName) {
-      window.location.href = `${API_URL}/api/download/${fileName}`;
+    downloadFile() {
+      console.log('Inizio download del file:', this.fileName);
+      try {
+        const url = `${API_URL}/api/download/${this.fileName}`;
+        console.log('URL di download:', url);
+        
+        const response = await fetch(url);
+        console.log('Risposta del download:', response);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        console.log('Download completato con successo!');
+      } catch (error) {
+        console.error('Errore durante il download:', error);
+      }
     }
   }
 };

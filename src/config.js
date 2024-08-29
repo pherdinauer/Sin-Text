@@ -1,1 +1,1 @@
-export const API_URL = `http://${process.env.VUE_APP_PUNTATORE || '192.168.145.10'}:3000`;
+export const API_URL = process.env.VUE_APP_API_URL || 'http://localhost:3000';
