@@ -1,10 +1,15 @@
 const { defineConfig } = require('@vue/cli-service')
 module.exports = defineConfig({
   transpileDependencies: true,
+  configureWebpack: {
+    plugins: [
+      require('unplugin-vue-define-options/webpack')(),
+    ],
+  },
   devServer: {
     proxy: {
       '/api': {
-        target: `http://${process.env.VUE_APP_PUNTATORE || '192.168.145.10'}:3000`,
+        target: 'http://localhost:3000',
         changeOrigin: true
       }
     }

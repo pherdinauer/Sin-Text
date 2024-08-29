@@ -17,25 +17,7 @@
       <span v-else class="spinner"></span>
       {{ processing ? 'Analisi in corso...' : 'Analizza' }}
     </button>
-    
-    <!-- Nuova box informativa -->
-    <div v-if="processing" class="info-box">
-      <p><strong>Stato elaborazione:</strong></p>
-      <p v-if="currentStep === 'model_selection'">
-        <i class="fas fa-cog fa-spin"></i> Scelta modello AI in corso
-      </p>
-      <p v-else-if="currentStep === 'analysis'">
-        <i class="fas fa-brain"></i> Analisi in corso
-      </p>
-      <p v-else-if="currentStep === 'document_production'">
-        <i class="fas fa-file-alt"></i> Produzione del documento
-      </p>
-    </div>
 
-    <div v-if="currentStatus" class="status-message">
-      <i :class="statusIcon"></i>
-      {{ currentStatus }}
-    </div>
     <div v-if="downloadLink" class="download-link">
       <a :href="downloadLink" :download="fileName" class="download-button">
         <i class="fas fa-download"></i> Scarica DOCX
@@ -61,26 +43,11 @@ export default {
       downloadLink: null,
       fileName: '',
       error: null,
-      currentStatus: '',
       completedPrompts: 0,
-      currentStep: '',
     };
   },
   computed: {
-    statusIcon() {
-      switch(this.currentStatus) {
-        case 'File caricato con successo':
-          return 'fas fa-check-circle';
-        case 'Analisi in corso':
-          return 'fas fa-spinner fa-spin';
-        case 'Analisi completata e pronta per il download':
-          return 'fas fa-check-double';
-        default:
-          return '';
-      }
-    },
     progressPercentage() {
-      // Inizia da 10% e poi avanza fino al 100%
       return Math.min(10 + (this.completedPrompts / 3) * 90, 100);
     }
   },
@@ -100,16 +67,13 @@ export default {
       this.processing = true;
       this.error = null;
       this.downloadLink = null;
-      this.currentStatus = '';
-      this.completedPrompts = 0; // Resetta il conteggio
-      this.currentStep = 'model_selection';
+      this.fileName = '';
 
       const formData = new FormData();
       formData.append('file', this.selectedFile);
 
       try {
-        console.log('Inizio upload al server:', `${API_URL}/api/process-file`);
-        const response = await fetch(`${API_URL}/api/process-file`, {
+        const response = await fetch(`${API_URL}/api/upload`, {
           method: 'POST',
           body: formData
         });
@@ -117,56 +81,85 @@ export default {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-        console.log('Upload completato, inizio lettura della risposta');
-        // Imposta il progresso iniziale al 10% quando inizia l'analisi
-        this.completedPrompts = 0.33; // Questo farà sì che progressPercentage sia circa 10%
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
 
         let done = false;
         while (!done) {
-          const { value, done: doneReading } = await reader.read();
-          done = doneReading;
+          const { value, done: readerDone } = await reader.read();
+          done = readerDone;
           if (value) {
-            const chunk = decoder.decode(value);
+            const chunk = decoder.decode(value, { stream: true });
             const messages = chunk.split('\n\n');
+            
             for (const message of messages) {
               if (message.startsWith('data: ')) {
                 const data = message.slice(6);
-                try {
-                  const jsonData = JSON.parse(data);
-                  if (jsonData.fileName) {
-                    this.fileName = jsonData.fileName;
-                    this.downloadLink = `/api/download/${jsonData.fileName}`;
-                    this.processing = false;
-                    this.completedPrompts = 3; // Assicuriamoci che la barra sia piena alla fine
-                    this.currentStep = '';
-                  } else {
-                    this.currentStatus = data;
-                    if (data.includes('Modello scelto per la Parte')) {
-                      this.completedPrompts += 0.33;
-                      this.currentStep = 'analysis';
-                    } else if (data.includes('Invio del Prompt 1')) {
-                      this.currentStep = 'analysis';
-                    } else if (data.includes('Invio del Prompt 3')) {
-                      this.currentStep = 'document_production';
-                    }
-                  }
-                } catch (e) {
-                  this.currentStatus = data;
+                console.log('Messaggio ricevuto:', data);
+                if (data === 'Analisi completata e pronta per il download') {
+                  this.downloadLatestFile();
                 }
               }
             }
           }
         }
+
+        this.processing = false;
       } catch (error) {
         console.error('Errore durante l\'upload:', error);
-        this.currentStatus = `Errore durante l'upload: ${error.message}`;
+        this.error = `Errore durante l'upload: ${error.message}`;
+        this.processing = false;
       }
     },
-    downloadFile(fileName) {
-      window.location.href = `${API_URL}/api/download/${fileName}`;
+    async downloadLatestFile() {
+      try {
+        this.error = null;
+        this.processing = true;
+        console.log('Inizio download del file più recente');
+        
+        const response = await fetch(`${API_URL}/api/download-latest`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'sintesi.docx';
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+          if (filenameMatch) {
+            filename = filenameMatch[1];
+          }
+        }
+        
+        const blob = await response.blob();
+        console.log(`Dimensione del blob scaricato: ${blob.size} bytes`);
+        
+        if (blob.size === 0) {
+          throw new Error('Il file scaricato è vuoto');
+        }
+        
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Rimuovi l'elemento dopo un breve ritardo
+        setTimeout(() => {
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        }, 100);
+        
+        console.log('Download completato con successo');
+        this.processing = false;
+      } catch (error) {
+        console.error('Errore durante il download del file:', error);
+        this.error = `Errore durante il download: ${error.message}`;
+        this.processing = false;
+      }
     }
   }
 };
@@ -281,20 +274,6 @@ h1 {
   pointer-events: none;
 }
 
-.status-message {
-  margin-top: 20px;
-  padding: 10px;
-  background-color: #2a2a2a;
-  border-radius: 5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.status-message i {
-  margin-right: 10px;
-}
-
 .download-link {
   margin-top: 20px;
   text-align: center;
@@ -356,21 +335,5 @@ h1 {
   height: 100%;
   background-color: #4CAF50;
   transition: width 0.5s ease-in-out;
-}
-
-.info-box {
-  margin-top: 20px;
-  padding: 15px;
-  background-color: #2a2a2a;
-  border-radius: 5px;
-  font-size: 14px;
-}
-
-.info-box p {
-  margin: 5px 0;
-}
-
-.info-box i {
-  margin-right: 10px;
 }
 </style>
